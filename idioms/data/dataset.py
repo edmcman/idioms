@@ -24,6 +24,7 @@ class DecompiledFunction:
         raw_code: str = "",
         test_meta: Optional[Dict[str, Dict[str, bool]]] = None,
         binary: Optional[str] = None,
+        ea: Optional[int] = None,
     ):
         self.name = name
         self.canonical_name: Optional[str] = None
@@ -35,6 +36,7 @@ class DecompiledFunction:
         self.canonical_code: Optional[str] = None
         self.test_meta = test_meta
         self.binary = binary
+        self.ea: Optional[int] = ea
 
     @classmethod
     def from_json(cls, d: Dict):
@@ -53,6 +55,7 @@ class DecompiledFunction:
             target,
             test_meta=d.get("test_meta", None),
             binary=d.get("binary", None),
+            ea=d.get("ea", None),
         )
 
     def to_json(self):
@@ -64,6 +67,7 @@ class DecompiledFunction:
             "code_tokens": self.code_tokens,
             "source": source,
             "target": target,
+            "ea": self.ea,
         }
 
     @classmethod
@@ -104,6 +108,7 @@ class DecompiledFunction:
             valid=(name == cf.debug.name and bool(source)), # we weren't using this anyway, but no longer as meaningful now that name == cf.debug.name is a tautology.
             binary=kwargs["binary"],
             raw_code=raw_code,
+            ea=cf.ea,
         )
 
     @staticmethod
@@ -150,6 +155,9 @@ class MatchedFunction:
                  return_type: TypeInfo, # Taken from the original code
                  user_defined_types: list[UDT],
                  binary_hash: str,
+                 function_decls: dict[str, str],
+                 global_decls: dict[str, str],
+                 ea: Optional[int] = None,
                  # There may not be a unique source hash
                  # source_hash: str, # preprocessed (e.g. gcc -E -P) source hash, not what you get directly from GitHub.
                 ):
@@ -164,9 +172,26 @@ class MatchedFunction:
         self.return_type = return_type
         self.user_defined_types = user_defined_types
         self.binary_hash = binary_hash
+        self.function_decls = function_decls
+        self.global_decls = global_decls
+        self.ea = ea
 
     def __eq__(self, other):
-        attrs = ["name", "repo", "decompiled_code", "canonical_decompiled_code", "original_code", "canonical_original_code", "variable_types", "return_type", "user_defined_types", "binary_hash"]
+        attrs = [
+            "name",
+            "repo",
+            "decompiled_code",
+            "canonical_decompiled_code",
+            "original_code",
+            "canonical_original_code",
+            "variable_types",
+            "return_type",
+            "user_defined_types",
+            "binary_hash",
+            "function_decls",
+            "global_decls",
+            "ea",
+        ]
         if not isinstance(other, MatchedFunction):
             return False
         for a in attrs:
@@ -201,7 +226,10 @@ class MatchedFunction:
             "variable_types": variable_types,
             "return_type": self.return_type._to_json(),
             "user_defined_types": user_defined_types,
-            "binary_hash": self.binary_hash
+            "binary_hash": self.binary_hash,
+            "function_decls": self.function_decls,
+            "global_decls": self.global_decls,
+            "ea": self.ea,
         }
     
     @classmethod
@@ -224,7 +252,10 @@ class MatchedFunction:
             variable_types=variable_types,
             return_type=cast(TypeInfo, TypeLibCodec.decode(json.dumps(d['return_type']))),
             user_defined_types=user_defined_types,
-            binary_hash=d['binary_hash']
+            binary_hash=d['binary_hash'],
+            function_decls=d['function_decls'],
+            global_decls=d['global_decls'],
+            ea=d['ea'],
         )
     
 

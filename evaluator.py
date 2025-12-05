@@ -14,7 +14,7 @@ import subprocess
 import itertools
 from collections import Counter
 from pathlib import Path
-from typing import Iterable, Callable, TypeVar, Any, Container
+from typing import Iterable, Callable, TypeVar, Any, Container, Optional, cast
 
 import z3
 import torch
@@ -44,6 +44,7 @@ from prepare import (
     get_all_user_defined_types,
     has_error, 
     get_child,
+    FunctionType,
     TypeNotDefinedError, 
     TypeNotFoundError, 
     UnsupportedFeatureError,
@@ -1289,6 +1290,18 @@ def exebench_to_matched_function(example: dict[str, str]) -> MatchedFunction | N
     except (AssertionError, TypeNotFoundError, TypeNotDefinedError, UnsupportedFeatureError):
         return None
     path = Path(example['path'])
+    # Extract function/global declarations from the preprocessed file types
+    function_decls: dict[str, str] = {}
+    global_decls: dict[str, str] = {}
+    for name, typ in fn.file_types.declarations.items():
+        try:
+            decl_text = typ.stubify().declaration(name)
+        except Exception:
+            decl_text = name
+        if isinstance(typ, FunctionType):
+            function_decls[name] = decl_text
+        else:
+            global_decls[name] = decl_text
     matched_function = MatchedFunction(
         name=example['fname'],
         canonical_name='func0', # there's only one function per binary so this must be the case. Also, this is not used in function mode.
@@ -1300,7 +1313,10 @@ def exebench_to_matched_function(example: dict[str, str]) -> MatchedFunction | N
         variable_types=fn.variable_types,
         return_type=fn.return_type,
         user_defined_types=get_all_user_defined_types(fn),
-        binary_hash=example['path'] # contains info on repo/function
+        binary_hash=example['path'], # contains info on repo/function
+        function_decls=function_decls,
+        global_decls=global_decls,
+        ea=cast(Optional[int], example.get('ea')),
     )
     # Attach the original example to the function so that we can get it later for the purposes of running the executable tests.
     setattr(matched_function, ORIGINAL_EXAMPLE_ATTR, example)

@@ -1148,6 +1148,19 @@ def build_matched_function(decompiled_fn: DecompiledFunction, original_fn: Prepr
         return None
 
     udts = get_all_user_defined_types(original_fn)
+    # Extract function and global declarations for inclusion in the MatchedFunction
+    function_decls: dict[str, str] = {}
+    global_decls: dict[str, str] = {}
+    for name, typ in original_fn.file_types.declarations.items():
+        try:
+            decl_text = typ.stubify().declaration(name)
+        except Exception:
+            # If we cannot produce a declaration for whatever reason, fall back to the raw declaration text in the file (if any) or the name alone.
+            decl_text = name
+        if isinstance(typ, FunctionType):
+            function_decls[name] = decl_text
+        else:
+            global_decls[name] = decl_text
     
     return MatchedFunction(
         name=decompiled_fn.name,
@@ -1160,7 +1173,10 @@ def build_matched_function(decompiled_fn: DecompiledFunction, original_fn: Prepr
         variable_types=original_fn.variable_types,
         return_type=original_fn.return_type,
         user_defined_types=udts,
-        binary_hash=decompiled_fn.binary
+        binary_hash=decompiled_fn.binary,
+        function_decls=function_decls,
+        global_decls=global_decls,
+        ea=decompiled_fn.ea,
     )
 
 K = TypeVar("K")
