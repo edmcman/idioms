@@ -796,11 +796,11 @@ class PreprocessedFunction:
         self.typ: FunctionType = typ
         self.name: str = name
         self.text = self.node.text.decode()
-        self.canonical_text, self.variable_types, self.return_type, self.referenced_types = self._get_canonical_form()
+        self.canonical_text, self.variable_types, self.return_type, self.referenced_types, self.referenced_identifiers = self._get_canonical_form()
 
-    def _get_canonical_form(self) -> tuple[str, dict[str, TypeInfo], TypeInfo, list[TypeInfo]]:
+    def _get_canonical_form(self) -> tuple[str, dict[str, TypeInfo], TypeInfo, list[TypeInfo], list[str]]:
         """Get the text of this function, all types for all variables in this function, the return type, and all other types 
-        referenced by this function in canonical form.
+        and identifiers referenced by this function in canonical form.
         """
         global_scope = Scope(mapping=self.file_types)
 
@@ -835,6 +835,8 @@ class PreprocessedFunction:
         # and a set reduces memory consumption; some TypeInfo representations can be quite large.
         referenced_types: dict[TypeInfo, None] = {}
         
+        referenced_identifiers: set[str] = set()
+
         body = get_child(self.node, "body")
 
         def find_declarators(node: Node, scope: Scope):
@@ -879,6 +881,8 @@ class PreprocessedFunction:
                 canonical_type = scope.expand_type(typ)
                 referenced_types[canonical_type] = None
                 edits.append((node, bytes(canonical_type.stubify().declaration(""), "utf8")))
+            elif node.type == "identifier":
+                referenced_identifiers.add(node.text.decode())
             else:
                 for child in node.children:
                     find_declarators(child, scope)
@@ -887,7 +891,7 @@ class PreprocessedFunction:
 
         canonical_text = self._canonicalize_text(bytes(canonical_function_type.stubify().declaration(self.name), "utf8"), edits)
 
-        return canonical_text, fn_types, return_type, list(referenced_types)
+        return canonical_text, fn_types, return_type, list(referenced_types), list(referenced_identifiers)
     
     def _canonicalize_text(self, function_declaration: bytes, body_edits: list[tuple[Node, bytes | list[bytes]]]) -> str:
         """Convert declarations to their canonical form, then return the text of the entire function.
@@ -1151,7 +1155,12 @@ def build_matched_function(decompiled_fn: DecompiledFunction, original_fn: Prepr
     # Extract function and global declarations for inclusion in the MatchedFunction
     function_decls: dict[str, str] = {}
     global_decls: dict[str, str] = {}
-    for name, typ in original_fn.file_types.declarations.items():
+
+    _, _, _, _, referenced_identifiers = original_fn._get_canonical_form()
+
+    used_declarations = {name: typ for name, typ in original_fn.file_types.declarations.items() if name in referenced_identifiers}
+
+    for name, typ in used_declarations.items():
         try:
             decl_text = typ.stubify().declaration(name)
         except Exception:
