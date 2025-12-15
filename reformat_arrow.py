@@ -41,8 +41,10 @@ def to_json(fn, type2id: Optional[dict[TypeInfo, int]] = None) -> dict[str, Any]
         # Ignore code tokens for now; we'll use just unigram tokenization
         # "memory_layout": {loc.json_key(): var.to_json() for loc, var in self.memory_layout.items()},
         "variable_types": variable_types,
-        "return_type": fn.return_type._to_json(),
+        "return_type": (fn.return_type.declaration("") if hasattr(fn.return_type, "declaration") else str(fn.return_type)),
         "user_defined_types": user_defined_types,
+        "function_decls": fn.function_decls,
+        "global_decls": fn.global_decls,
         "binary_hash": fn.binary_hash,
     }
 
