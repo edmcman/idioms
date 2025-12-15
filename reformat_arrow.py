@@ -13,6 +13,16 @@ from idioms.dataiter import MatchedFunctionDataset, MatchedBinaryDataset
 from idioms.data.dataset import MatchedBinary, MatchedFunction
 
 def to_json(fn, type2id: Optional[dict[TypeInfo, int]] = None) -> dict[str, Any]:
+    # If given a MatchedBinary, return a binary-level JSON containing its matched functions
+    if isinstance(fn, MatchedBinary):
+        return {
+            "binary_hash": fn.binary_hash,
+            "repo": fn.repo,
+            "call_graph": fn.call_graph,
+            "unmatched": fn.unmatched,
+            "matched_functions": [to_json(f, type2id) for f in fn.functions],
+        }
+
     variable_types = {
         name: (typ.declaration("") if type2id is None else type2id[typ])
         for name, typ in fn.variable_types.items()
@@ -33,7 +43,7 @@ def to_json(fn, type2id: Optional[dict[TypeInfo, int]] = None) -> dict[str, Any]
         "variable_types": variable_types,
         "return_type": fn.return_type._to_json(),
         "user_defined_types": user_defined_types,
-        "binary_hash": fn.binary_hash
+        "binary_hash": fn.binary_hash,
     }
 
 def main():
