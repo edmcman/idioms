@@ -7,12 +7,14 @@ import os
 import json
 import random
 from pathlib import Path
-from typing import Callable, TypeVar
+from typing import Callable, TypeVar, TYPE_CHECKING, Any
 
 import torch
-from transformers import Trainer, TrainingArguments, PreTrainedTokenizer
 from unsloth import FastLanguageModel
 import wandb
+
+if TYPE_CHECKING:
+    from transformers import PreTrainedTokenizerBase
 
 from idioms.data.dataset import MatchedFunction, MatchedBinary
 from idioms.dataiter import MatchedFunctionDataset, MatchedBinaryDataset, MatchedBinaryFunctionWrapper
@@ -54,7 +56,12 @@ def get_args():
 def causal_stringify_function(fn: MatchedFunction) -> str:
     return causal_stringify_function_prompt(fn) + stringify_function_target(fn)
 
-def causal_stringify_neighbors(input: tuple[MatchedBinary, int], nhops: int, tokenizer: PreTrainedTokenizer, max_context: int | None = None) -> str:
+def causal_stringify_neighbors(
+    input: tuple[MatchedBinary, int],
+    nhops: int,
+    tokenizer: "PreTrainedTokenizerBase",
+    max_context: int | None = None,
+) -> str:
     binary, tgt_fn_idx = input
     fn = binary.functions[tgt_fn_idx]
     return causal_stringify_neighbors_prompt(binary, fn, nhops, tokenizer, max_context) + stringify_function_target(fn)
@@ -79,6 +86,10 @@ def causal_train_collate(batch: list[T], tokenizer, stringify: Callable[[T], str
     return encoded_batch
 
 def main(args: argparse.Namespace):
+    # Import transformers lazily: in some environments `transformers.Trainer` import
+    # fails due to optional dependency / lazy-module resolution issues.
+    from transformers import Trainer, TrainingArguments
+
     global DEBUG_RUN
     DEBUG_RUN = DEBUG_RUN or args.run_name == "temp"
     random.seed(args.random_seed)
