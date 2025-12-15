@@ -6,7 +6,7 @@ Also requires a modification to the dataset to output the string form rather tha
 from pathlib import Path
 import argparse
 import json
-from typing import Optional
+from typing import Optional, Any
 
 from idioms.data.types import TypeInfo
 from idioms.dataiter import MatchedFunctionDataset, MatchedBinaryDataset
