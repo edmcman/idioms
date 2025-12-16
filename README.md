@@ -21,6 +21,8 @@ conda env create -f env.yml
 ```
 In addition, some sections require installing additional packages or supplementary conda environments.
 
+If you prefer a pip/venv workflow, you can use Astral's `uv` project manager instead.
+
 # Building the Realtype Dataset
 
 The first steps for building the dataset involve the ghcc-idioms directory, a modified version of the [original GHCC](https://github.com/huzecong/ghcc).
