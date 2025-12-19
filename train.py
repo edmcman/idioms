@@ -51,6 +51,7 @@ def get_args():
     parser.add_argument("--resume-from-checkpoint", type=str, help="Resume training from this checkpoint.")
     parser.add_argument("--save-strategy", choices=["epoch", "steps", "auto"], default="auto", help="The checkpointing strategy to use: save every epoch or after --save-steps steps. Defaults to 'epoch' for small datasets and 'steps' for large datasets.")
     parser.add_argument("--save-steps", type=int, default=1000, help="In steps mode, the number of steps since the last save to save a checkpoint.")
+    parser.add_argument("--eval-accumulation-steps", type=int, default=1, help="Number of evaluation batches to accumulate on device before moving to CPU. Use 1 to minimize GPU memory during evaluation.")
     return parser.parse_args()
 
 def causal_stringify_function(fn: MatchedFunction) -> str:
@@ -131,9 +132,14 @@ def main(args: argparse.Namespace):
     if args.mode == "function":
         stringify = causal_stringify_function
         train_set = MatchedFunctionDataset(dataset_path.glob("train*.tar"), length_cache=dataset_path / "length_cache.pkl")
+        eval_set = MatchedFunctionDataset(dataset_path.glob("validation*.tar"), length_cache=dataset_path / "length_cache.pkl")
     else:
         train_set = MatchedBinaryFunctionWrapper(
             MatchedBinaryDataset(dataset_path.glob("train*.tar"), length_cache=dataset_path / "length_cache.pkl"),
+            max_fns_per_binary=max_fns_per_binary if args.mode == "binary" else None
+        )
+        eval_set = MatchedBinaryFunctionWrapper(
+            MatchedBinaryDataset(dataset_path.glob("validation*.tar"), length_cache=dataset_path / "length_cache.pkl"),
             max_fns_per_binary=max_fns_per_binary if args.mode == "binary" else None
         )
 
@@ -165,7 +171,7 @@ def main(args: argparse.Namespace):
             lora_alpha=2 * lora_rank,
             lora_dropout=0,
             bias = "none",    # Supports any, but = "none" is optimized
-            use_gradient_checkpointing = True,
+            use_gradient_checkpointing="unsloth",
             max_seq_length=max_length,
         )
 
@@ -208,8 +214,12 @@ def main(args: argparse.Namespace):
         output_dir=str(output_dir),
         overwrite_output_dir=True,
         do_train=True,
+        do_eval=True,
+        eval_strategy="steps",
+        eval_steps=50,
         num_train_epochs=args.epochs,
         per_device_train_batch_size=batch_size, # With split_batches=True this is a lie: it is actually the total batch size.
+        per_device_eval_batch_size=batch_size,
         remove_unused_columns=False, # Allows me to use my custom collate_fn function which is much cleaner than the examples/tutorial suggested methods.
         dataloader_drop_last=True,
         warmup_steps=warmup_iters,
@@ -222,12 +232,14 @@ def main(args: argparse.Namespace):
         report_to="wandb",
         logging_steps=50 if not DEBUG_RUN else 1,
         logging_strategy="steps",
+        eval_accumulation_steps=args.eval_accumulation_steps,
     )
 
     trainer = Trainer(
         model, 
         args=training_args, 
         train_dataset=train_set, 
+        eval_dataset=eval_set,
         processing_class=tokenizer,
         data_collator=functools.partial(
                 causal_train_collate, 
