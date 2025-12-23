@@ -155,8 +155,8 @@ class MatchedFunction:
                  return_type: TypeInfo, # Taken from the original code
                  user_defined_types: list[UDT],
                  binary_hash: str,
-                 function_decls: dict[str, str],
-                 global_decls: dict[str, str],
+                 function_decls: Optional[dict[str, str]] = None,
+                 global_decls: Optional[dict[str, str]] = None,
                  ea: Optional[int] = None,
                  # There may not be a unique source hash
                  # source_hash: str, # preprocessed (e.g. gcc -E -P) source hash, not what you get directly from GitHub.
@@ -253,9 +253,9 @@ class MatchedFunction:
             return_type=cast(TypeInfo, TypeLibCodec.decode(json.dumps(d['return_type']))),
             user_defined_types=user_defined_types,
             binary_hash=d['binary_hash'],
-            function_decls=d['function_decls'],
-            global_decls=d['global_decls'],
-            ea=d['ea'],
+            function_decls=d.get('function_decls'),
+            global_decls=d.get('global_decls'),
+            ea=d.get('ea'),
         )
     
 
