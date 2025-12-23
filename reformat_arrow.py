@@ -1,6 +1,10 @@
 """Re-format the idioms dataset to use its non-compact form in a json format friendly for uptake by pyarrow.
 
-Also requires a modification to the dataset to output the string form rather than the object-model-JSON form.
+Also handy: 
+
+for BIN in "--" "--binary"; for OPT in O0 O{1,2,3}_noinline; echo $OPT $BIN; python reformat_arrow.py $BIN ~/Projects/idioms-data/published/idioms_dataset_{$OPT}_opt_parity; end; end
+
+for opt in O0 O{1,2,3}_noinline; for t in binary function; for split in train test valid; echo $opt $t $split; set dir ~/Projects/idioms-realtype/by-{$t}-hex-rays-parity-{$opt}; mkdir -p "$dir"; cat arrow-idioms_dataset_{$opt}_opt_parity-{$t}.json | pv | jq -c .$split"[]" | zstd > "$dir/$split.jsonl.zst"; end; end; end
 """
 
 from pathlib import Path
@@ -18,8 +22,9 @@ def to_json(fn, type2id: Optional[dict[TypeInfo, int]] = None) -> dict[str, Any]
         return {
             "binary_hash": fn.binary_hash,
             "repo": fn.repo,
-            "call_graph": fn.call_graph,
-            "unmatched": fn.unmatched,
+            # datasets/arrow really struggles with nested dicts
+            "call_graph": [([k], vs) for k, vs in fn.call_graph.items()],
+            "unmatched": [(k, v) for k, v in fn.unmatched.items()],
             "matched_functions": [to_json(f, type2id) for f in fn.functions],
         }
 
@@ -40,7 +45,8 @@ def to_json(fn, type2id: Optional[dict[TypeInfo, int]] = None) -> dict[str, Any]
         "canonical_original_code": fn.canonical_original_code,
         # Ignore code tokens for now; we'll use just unigram tokenization
         # "memory_layout": {loc.json_key(): var.to_json() for loc, var in self.memory_layout.items()},
-        "variable_types": variable_types,
+        # datasets/arrow really struggles with nested dicts
+        "variable_types": [(k,v) for k, v in variable_types.items()],
         "return_type": (fn.return_type.declaration("") if hasattr(fn.return_type, "declaration") else str(fn.return_type)),
         "user_defined_types": user_defined_types,
         "function_decls": fn.function_decls,
