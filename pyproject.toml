@@ -4,7 +4,8 @@ version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
     "bitsandbytes>=0.43.3",
-    "nltk>=3.9.2",
+    "codealign",
+    "nltk>=3.9.0",
     "peft>=0.13.2",
     "pygments>=2.19.2",
     "rich>=14.2.0",
@@ -18,4 +19,8 @@ dependencies = [
     "unsloth>=2024.10.7",
     "unsloth-zoo>=2024.11.0",
     "wandb>=0.17.2",
+    "z3-solver>=4.15.4.0",
 ]
+
+[tool.uv.sources]
+codealign = { path = "codealign" }
