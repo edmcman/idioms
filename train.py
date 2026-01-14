@@ -22,7 +22,8 @@ from idioms.hf import (
     stringify_function_target,
     causal_stringify_function_prompt,
     causal_stringify_neighbors_prompt,
-    causal_stringify_binary_prompt
+    causal_stringify_binary_prompt,
+    DECOMPILED_ORIG_SEP,
 )
 
 
@@ -80,8 +81,24 @@ def causal_train_collate(batch: list[T], tokenizer, stringify: Callable[[T], str
     sequences: list[str] = [stringify(ex) for ex in batch]
     encoded_batch = tokenizer(sequences, return_tensors='pt', max_length=max_length, padding=True, truncation=True)
     labels = encoded_batch["input_ids"].clone()
+    attention_mask = encoded_batch["attention_mask"]
+
+    # Mask padding tokens
     if tokenizer.pad_token_id is not None:
-        labels[labels == tokenizer.pad_token_id] = -100
+        labels[attention_mask == 0] = -100
+
+    # Mask prompt tokens (loss only on target). If the separator is present, use it to
+    # find the prompt boundary; otherwise, be conservative and do not attempt guessing.
+    for i, seq in enumerate(sequences):
+        assert DECOMPILED_ORIG_SEP in seq, f"Expected separator token in sequence: {seq[:100]}..."
+        prompt = seq.rsplit(DECOMPILED_ORIG_SEP, 1)[0] + DECOMPILED_ORIG_SEP
+        # Tokenize the prompt without adding special tokens to get a consistent prefix length
+        prompt_ids = tokenizer(prompt, add_special_tokens=False)["input_ids"]
+        prompt_len = len(prompt_ids)
+        row_len = int(attention_mask[i].sum().item())
+        n = min(prompt_len, row_len)
+        labels[i, :n] = -100
+
     encoded_batch["labels"] = labels
     return encoded_batch
 
