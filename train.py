@@ -78,10 +78,20 @@ def causal_stringify_binary(input: tuple[MatchedBinary, int]) -> str:
 def causal_train_collate(batch: list[T], tokenizer, stringify: Callable[[T], str], max_length: int):
     """Convert a batch into input IDs and an attention mask.
     """
-    sequences: list[str] = [stringify(ex) for ex in batch]
-    encoded_batch = tokenizer(sequences, return_tensors='pt', max_length=max_length, padding=True, truncation=True)
+    assert tokenizer.eos_token is not None, "Tokenizer must have an EOS token."
+    sequences: list[str] = [stringify(ex) + tokenizer.eos_token for ex in batch]
+    encoded_batch = tokenizer(sequences, return_tensors='pt', max_length=max_length, padding=True, truncation=True, add_special_tokens=False)
     labels = encoded_batch["input_ids"].clone()
     attention_mask = encoded_batch["attention_mask"]
+
+    # ensure EOS at last non-pad position
+    # eos_id = tokenizer.eos_token_id
+    # input_ids = encoded_batch["input_ids"]
+    # attn = encoded_batch["attention_mask"]
+    # for i in range(input_ids.size(0)):
+    #     row_len = int(attn[i].sum().item())
+    #     if row_len > 0 and input_ids[i, row_len - 1].item() != eos_id:
+    #         input_ids[i, row_len - 1] = eos_id
 
     # Mask padding tokens
     if tokenizer.pad_token_id is not None:

@@ -1381,7 +1381,7 @@ def predict(
     for batch in tqdm(DataLoader(eval_list, batch_size=batch_size, collate_fn=collate_fn, shuffle=False), desc="Predicting...", dynamic_ncols=True): # type: ignore  (a list is technically not a dataset but it has __getitem__ and __len__ methods like a dataset, so it duck-types.)
         batch.to(device)
         # Note: pad_token_id=tokenizer.pad_token_id suppresses the warning "Setting `pad_token_id` to `eos_token_id`:None for open-end generation.""
-        predictions = model.generate(**batch, max_new_tokens=max_new_tokens, pad_token_id=tokenizer.pad_token_id)
+        predictions = model.generate(**batch, max_new_tokens=max_new_tokens)
         decoded = tokenizer.batch_decode(predictions, skip_special_tokens=True)
         results.extend(decoded)
     return list(zip(eval_list, results))
