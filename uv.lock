@@ -294,19 +294,11 @@ wheels = [
 [[package]]
 name = "codealign"
 version = "0.0.1"
-source = { directory = "codealign" }
+source = { git = "https://github.com/squaresLab/codealign#aba02f98c0c7e1b5f25334f5987d46ed542373a0" }
 dependencies = [
     { name = "tree-sitter" },
     { name = "tree-sitter-c" },
     { name = "tree-sitter-python" },
-    { name = "z3-solver" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "tree-sitter", specifier = "==0.23.1" },
-    { name = "tree-sitter-c", specifier = "==0.23.1" },
-    { name = "tree-sitter-python", specifier = "==0.21.0" },
     { name = "z3-solver" },
 ]
 
@@ -691,7 +683,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "bitsandbytes", specifier = ">=0.43.3" },
-    { name = "codealign", directory = "codealign" },
+    { name = "codealign", git = "https://github.com/squaresLab/codealign" },
     { name = "nltk", specifier = ">=3.9.0" },
     { name = "peft", specifier = ">=0.13.2" },
     { name = "pygments", specifier = ">=2.19.2" },
