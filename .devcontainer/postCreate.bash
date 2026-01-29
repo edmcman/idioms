@@ -13,7 +13,8 @@ sudo -E apt-get install -y --no-install-recommends \
   python3-dev \
   ca-certificates \
   curl \
-  gnupg
+  gnupg \
+  tmux
 sudo -E rm -rf /var/lib/apt/lists/*
 
 # Install uv (official installer)

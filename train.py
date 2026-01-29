@@ -11,6 +11,7 @@ from typing import Callable, TypeVar, TYPE_CHECKING, Any
 
 import torch
 from unsloth import FastLanguageModel
+from accelerate import Accelerator
 import wandb
 
 if TYPE_CHECKING:
@@ -117,6 +118,7 @@ def main(args: argparse.Namespace):
     # fails due to optional dependency / lazy-module resolution issues.
     from transformers import Trainer, TrainingArguments
 
+    accelerator = Accelerator()
     global DEBUG_RUN
     DEBUG_RUN = DEBUG_RUN or args.run_name == "temp"
     random.seed(args.random_seed)
@@ -212,22 +214,25 @@ def main(args: argparse.Namespace):
 
     # Wandb stuff. Handle this manually instead of letting the trainer do it so we
     # can resume an existing wandb run rather than start a new one.
+    # Only initialize on rank 0 to avoid multiple wandb inits in DDP/distributed training
+    is_main_process = accelerator.is_main_process
     if not DEBUG_RUN:
         os.environ["WANDB_PROJECT"]="idioms"
     runid_file = output_dir / "wandb_run_id.txt"
-    if resume_from_checkpoint is None or not runid_file.exists():
-        run = wandb.init(name=run_name)
-        with open(runid_file, "w") as fp:
-            fp.write(run.id)
-    else:
-        with open(runid_file, "r") as fp:
-            run_id = fp.read().strip().splitlines()[-1]
-        wandb.init(id=run_id, resume="must")
-        # fork_from is slightly preferable but currently in private beta.
-        # run = wandb.init(name=run_name + "-cont", fork_from=f"{run_id}?_step={checkpoint_step}")
-        # with open(runid_file, "a") as fp:
-        #     fp.write("\n")
-        #     fp.write(run.id)
+    if is_main_process:
+        if resume_from_checkpoint is None or not runid_file.exists():
+            run = wandb.init(name=run_name)
+            with open(runid_file, "w") as fp:
+                fp.write(run.id)
+        else:
+            with open(runid_file, "r") as fp:
+                run_id = fp.read().strip().splitlines()[-1]
+            wandb.init(id=run_id, resume="must")
+            # fork_from is slightly preferable but currently in private beta.
+            # run = wandb.init(name=run_name + "-cont", fork_from=f"{run_id}?_step={checkpoint_step}")
+            # with open(runid_file, "a") as fp:
+            #     fp.write("\n")
+            #     fp.write(run.id)
 
     training_args = TrainingArguments(
         bf16=compute_dtype==torch.bfloat16,
@@ -249,6 +254,8 @@ def main(args: argparse.Namespace):
         report_to="wandb",
         logging_steps=50 if not DEBUG_RUN else 1,
         logging_strategy="steps",
+        auto_find_batch_size=True,
+        average_tokens_across_devices=False, #https://github.com/unslothai/unsloth/issues/3769
     )
 
     trainer = Trainer(

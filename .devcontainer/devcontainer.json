@@ -26,6 +26,12 @@
 	// Use 'postCreateCommand' to run commands after the container is created.
 	"postCreateCommand": "bash .devcontainer/postCreate.bash",
 
+	"runArgs": ["--gpus", "all"],
+
+	"mounts": [
+		"source=${localWorkspaceFolder}/../idioms-data,target=/workspaces/idioms-data,type=bind"
+	],
+
 	// Configure tool-specific properties.
 	// "customizations": {},
 
