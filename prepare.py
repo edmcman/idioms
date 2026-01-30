@@ -11,6 +11,7 @@ import sys
 import random
 import itertools
 import functools
+import logging
 from collections import deque
 from os import PathLike, scandir
 from pathlib import Path
@@ -938,15 +939,37 @@ class PreprocessedFunction:
 
 def find_functions(root: Node, types: FileTypeMapping) -> list[PreprocessedFunction]:
     functions: list[PreprocessedFunction] = []
+    fn_definition_count = 0
+    error_count = 0
+    parse_failures = {'TypeNotFoundError': 0, 'TypeNotDefinedError': 0, 'UnsupportedFeatureError': 0, 'UnicodeDecodeError': 0, 'AssertionError': 0}
     for member in root.children:
-        if member.type == "function_definition" and not has_error(member):
-            try:
-                functions.append(PreprocessedFunction(member, types))
-            except (TypeNotFoundError, TypeNotDefinedError, UnsupportedFeatureError, UnicodeDecodeError):
-                pass # traceback.print_exc()
-            except AssertionError:
-                # Represents an assumption that was not met.
-                pass # TODO: Handle this differently.
+        if member.type == "function_definition":
+            fn_definition_count += 1
+            if has_error(member):
+                error_count += 1
+            else:
+                try:
+                    functions.append(PreprocessedFunction(member, types))
+                except TypeNotFoundError as e:
+                    parse_failures['TypeNotFoundError'] += 1
+                    logging.debug(f"TypeNotFoundError in function: {e}")
+                except TypeNotDefinedError as e:
+                    parse_failures['TypeNotDefinedError'] += 1
+                    logging.debug(f"TypeNotDefinedError in function: {e}")
+                except UnsupportedFeatureError as e:
+                    parse_failures['UnsupportedFeatureError'] += 1
+                    logging.debug(f"UnsupportedFeatureError in function: {e}")
+                except UnicodeDecodeError as e:
+                    parse_failures['UnicodeDecodeError'] += 1
+                    logging.debug(f"UnicodeDecodeError in function: {e}")
+                except AssertionError as e:
+                    parse_failures['AssertionError'] += 1
+                    logging.debug(f"AssertionError in function: {e}")
+    
+    if fn_definition_count > 0:
+        logging.debug(f"Found {fn_definition_count} function definitions, {error_count} with parse errors, successfully parsed {len(functions)}")
+        if any(parse_failures.values()):
+            logging.debug(f"Parse failures: {parse_failures}")
 
     return functions
 
@@ -967,14 +990,17 @@ def read_decompiled(location: Path, binary: str) -> Optional[list[DecompiledFunc
     file = f"{binary}_{binary}.jsonl.gz"
     try:
         with gzip.open(location / file, "rt") as fp:
+            line_count = 0
             for line in fp:
+                line_count += 1
                 cf = CollectedFunction.from_json(json.loads(line))
-                examples.append(DecompiledFunction.from_cf(cf, binary=binary, max_stack_length=1024, max_type_size=1024))    
-    except (gzip.BadGzipFile, EOFError):
-        print(f"Bad gzip file: {file}")
+                examples.append(DecompiledFunction.from_cf(cf, binary=binary, max_stack_length=1024, max_type_size=1024))
+            logging.debug(f"Read {len(examples)} decompiled functions from {file} ({line_count} lines)")
+    except (gzip.BadGzipFile, EOFError) as e:
+        logging.warning(f"Bad gzip file: {file} - {e}")
         return None
-    except MissingDebugError:
-        print(f"Missing debug info in {file}")
+    except MissingDebugError as e:
+        logging.warning(f"Missing debug info in {file} - {e}")
         return None
     return examples
 
@@ -1007,6 +1033,9 @@ def canonicalize_function_names(functions: list[DecompiledFunction]) -> dict[str
             return (node, bytes(f"func{newid}", "utf8"))
 
     state: list[tuple[DecompiledFunction, Node, list[tuple[Node, bytes]]]] = []
+    parse_failures = 0
+    no_function_def = 0
+    no_identifier = 0
     
     for fn in functions:
         # First, find a reference to the function definition itself.
@@ -1015,6 +1044,7 @@ def canonicalize_function_names(functions: list[DecompiledFunction]) -> dict[str
             if fn_node.type == "comment":
                 continue
         if fn_node.type != "function_definition": #, f"Expected function definition but found {fn_node}."
+            no_function_def += 1
             continue
 
         declarator = get_child(fn_node, "declarator")
@@ -1022,9 +1052,11 @@ def canonicalize_function_names(functions: list[DecompiledFunction]) -> dict[str
             try:
                 declarator = get_child(declarator, "declarator")
             except:
+                parse_failures += 1
                 break
         
         if declarator.type != "identifier":
+            no_identifier += 1
             continue
         
         # Record the names of the functions found in the binary.
@@ -1084,6 +1116,7 @@ def canonicalize_function_names(functions: list[DecompiledFunction]) -> dict[str
         canonical_code = b"".join(components).decode("utf8")
         fn.canonical_code = canonical_code
     
+    logging.debug(f"canonicalize_function_names: {len(functions)} input functions, {len(state)} successfully processed, {no_function_def} without function_definition, {no_identifier} without identifier, {parse_failures} parse failures")
     return call_graph
 
 def get_all_user_defined_types(original_fn: PreprocessedFunction) -> list[UDT]:
@@ -1204,13 +1237,19 @@ def prepare_repository(repo: str, binaries: set[str], preprocessed_location: Pat
     :param preprocessed_location: where to find the preprocessed files
     :param decompiled_location: where to find the decompiled files and typelib
     """
+    logging.debug(f"Processing repo {repo} with {len(binaries)} binaries")
     bin2decomp: dict[str, list[DecompiledFunction]] = {} # Index by binary hash
+    total_decomps = 0
+    total_stubs_filtered = 0
     for binary in sorted(binaries):
         decomps = read_decompiled(decompiled_location, binary)
         if decomps: # ignore both empty list and None:
+            total_decomps += len(decomps)
             nonstub = [d for d in decomps if d.name[0] != '.'] # Filter out PLT stub functions, which are prefixed with '.' by the DIRTY generator.
+            total_stubs_filtered += len(decomps) - len(nonstub)
             if len(nonstub) > 0:
                 bin2decomp[binary] = nonstub
+    logging.debug(f"Repo {repo}: read {total_decomps} total decompiled functions, filtered {total_stubs_filtered} stubs, kept {len(bin2decomp)} binaries")
     
     ### Eliminate object files if one or more binaries built from those object files are present.
     # Object files are considered "binaries", and are included in the dataset. This is desirable when
@@ -1231,6 +1270,7 @@ def prepare_repository(repo: str, binaries: set[str], preprocessed_location: Pat
                 larger = bins[j]
                 if smaller in bin2decomp and bin2names[smaller].issubset(bin2names[larger]):
                     del bin2decomp[smaller]
+    logging.debug(f"Repo {repo}: after eliminating object files, {len(bin2decomp)} binaries remain")
     del bin2names, name2bins
 
     call_graphs: dict[str, dict[str, list[str]]] = {}
@@ -1241,24 +1281,32 @@ def prepare_repository(repo: str, binaries: set[str], preprocessed_location: Pat
 
     ### Process preprocessed source code.
     preprocessed_files = [Path(f).absolute() for f in scandir(preprocessed_location / repo) if f.is_file()]
+    logging.debug(f"Repo {repo}: found {len(preprocessed_files)} preprocessed files")
 
     fnname2source: dict[str, list[str]] = {} # Index by function name
     preprocessed_functions: dict[str, list[PreprocessedFunction]] = {} # Index by function name. Values are deduplicated.
     fnbyfile: dict[tuple[str, str], PreprocessedFunction] = {} # Index by (file name, function name)
+    permission_errors = 0
+    parse_errors = 0
+    notimpl_errors = 0
+    total_functions_found = 0
     for f in preprocessed_files:
         try:
             root = parse_file(f)
         except PermissionError:
+            permission_errors += 1
             continue
         if root.type == "ERROR": # f could be another type of text file (like a generated configure script or something).
-            # print(f"Could not parse {f}", file=sys.stderr)
+            parse_errors += 1
             continue
         try:
             types = find_types(root)
         except NotImplementedError: # TODO: investigate why this occurs
+            notimpl_errors += 1
             continue
 
         functions = find_functions(root, types)
+        total_functions_found += len(functions)
         for fn in functions:
             accumulate(fnname2source, fn.name, f.name)
             fnbyfile[(f.name, fn.name)] = fn
@@ -1267,15 +1315,23 @@ def prepare_repository(repo: str, binaries: set[str], preprocessed_location: Pat
                     preprocessed_functions[fn.name].append(fn)
             else:
                 preprocessed_functions[fn.name] = [fn]
+    
+    logging.debug(f"Repo {repo}: preprocessed files processing - {permission_errors} permission errors, {parse_errors} parse errors, {notimpl_errors} NotImplementedErrors")
+    logging.debug(f"Repo {repo}: found {total_functions_found} total functions in preprocessed files, {len(preprocessed_functions)} unique function names")
 
     # Index by binary
     matched: dict[str, list[MatchedFunction | None]] = {}
 
     ### Match decompiled functions with their corresponding definitions in the original function.
+    total_unique_matches = 0
+    total_file_based_matches = 0
+    total_unmatched = 0
     for binary, decomps in bin2decomp.items():
+        logging.debug(f"Repo {repo}, binary {binary}: attempting to match {len(decomps)} decompiled functions")
         from_source_files: set[str] = set() # Of preprocessed hashes (not binary hashes)
         # First, identify the functions whose source provenance we're sure of: those that
         # have one unique definition in the source code.
+        unique_matches = 0
         for decomp in decomps:
             if decomp.name in preprocessed_functions:
                 matching_fns = preprocessed_functions[decomp.name]
@@ -1283,14 +1339,22 @@ def prepare_repository(repo: str, binaries: set[str], preprocessed_location: Pat
                     # Easy case. The name uniquely identifies the function.
                     accumulate(matched, binary, build_matched_function(decomp, matching_fns[0], repo))
                     from_source_files.update(fnname2source[decomp.name])
+                    unique_matches += 1
+        total_unique_matches += unique_matches
+        logging.debug(f"Repo {repo}, binary {binary}: {unique_matches} unique name-based matches")
         # Next, attempt to use the files that we know other functions in the file came from to
         # choose the files that these functions came from.
+        file_based_matches = 0
         for decomp in decomps:
             if decomp.name in preprocessed_functions:
                 matching_fns = preprocessed_functions[decomp.name]
                 matching_files = fnname2source[decomp.name]
                 if len(matching_fns) > 1 and len(fs := from_source_files.intersection(matching_files)) == 1:
                     accumulate(matched, binary, build_matched_function(decomp, fnbyfile[(fs.pop(), decomp.name)], repo))
+                    file_based_matches += 1
+        total_file_based_matches += file_based_matches
+        total_unmatched += len(decomps) - unique_matches - file_based_matches
+        logging.debug(f"Repo {repo}, binary {binary}: {file_based_matches} file-based matches, {len(decomps) - unique_matches - file_based_matches} unmatched")
     
     # The call graphs produced by canonicalize_function_names are unidirectional:
     # That is, they only contain information about outgoing calls, not incoming.
@@ -1309,13 +1373,21 @@ def prepare_repository(repo: str, binaries: set[str], preprocessed_location: Pat
                         bidirectional[call][source] = None
         bidirectional_call_graphs[binhash] = {func: list(calls) for func, calls in bidirectional.items()}
 
+    logging.debug(f"Repo {repo}: Total matching summary - {total_unique_matches} unique matches, {total_file_based_matches} file-based matches, {total_unmatched} unmatched")
+    
     # Build the MatchedBinaries now that all of the information necessary has been computed.
     output: list[MatchedBinary] = []
+    total_filtered_none = 0
     for binhash, fns in matched.items():
+        before_filter = len(fns)
         fns = list(filter(None, fns)) # remove those functions which have no canonical decompiled names or code. (These fail cause build_matched_function to return None.)
+        total_filtered_none += before_filter - len(fns)
         matched_names = set(fn.name for fn in fns)
         unmatched: dict[str, str] = {decomp.name: decomp.canonical_code for decomp in bin2decomp[binhash] if decomp.name not in matched_names and decomp.canonical_code is not None}
         output.append(MatchedBinary(fns, binhash, repo, bidirectional_call_graphs[binhash], unmatched))
+    
+    logging.debug(f"Repo {repo}: Filtered {total_filtered_none} None matched functions (missing canonical names/code)")
+    logging.debug(f"Repo {repo}: Created {len(output)} MatchedBinaries with total {sum(len(mb.functions) for mb in output)} matched functions")
 
     return output
 
@@ -1386,6 +1458,15 @@ def write_shard(filename: Path, contents: list[MatchedBinary]):
 ##################################################
 
 def main(args: argparse.Namespace):
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler('prepare_debug.log'),
+            logging.StreamHandler(sys.stderr)
+        ]
+    )
+    logging.info("Starting dataset preparation")
     random.seed(args.random_seed)
     decompiled_dir = Path(args.decompiled_dir)
     preprocessed_dir = Path(args.preprocessed_dir)
@@ -1511,6 +1592,8 @@ def main(args: argparse.Namespace):
             partition_bins: dict[str, list[str]] = {}
             shard_no = 0
             for repo, matched_binaries in tqdm(zip(repos, iterator), total=len(repos), desc=f"Processing {partition_name} set", dynamic_ncols=True):
+                total_functions = sum(len(b.functions) for b in matched_binaries)
+                logging.info(f"Processing repo {repo} with {len(matched_binaries)} binaries and {total_functions} total matched functions")
                 cluster_buffer[repo].append(matched_binaries)
                 if len(cluster_buffer[repo]) == cluster_sizes[repo]:
                     # Select the repository from the cluster that contains the most functions.
