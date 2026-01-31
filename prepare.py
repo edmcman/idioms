@@ -7,6 +7,7 @@ import gzip
 import multiprocessing
 import tarfile
 import io
+import re
 import sys
 import random
 import itertools
@@ -1066,7 +1067,13 @@ def canonicalize_function_names(functions: list[DecompiledFunction]) -> dict[str
         else:
             edit = make_edit(declarator)
             edits: list[tuple[Node, bytes]] = [edit]
-            if edit[0].text.decode() != fn.name:
+            # Correct the function name if it doesn't match the decompiled code.
+            # Because DIRTY's generator.py has a bug in stripping, for Hex-Rays
+            # this will include the original function name.  But DIRTY-Ghidra
+            # corrects this problem and will not.  So here we only copy the name
+            # if it appears legitimate.
+            if edit[0].text.decode() != fn.name and not re.match(r"(FUN|sub)_[0-9a-f]+", edit[0].text.decode()):
+                logging.warning(f"Changing function name from {fn.name} to {edit[0].text.decode()}")
                 fn.name = edit[0].text.decode()
             fn.canonical_name = edit[1].decode()
         
