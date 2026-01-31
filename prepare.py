@@ -4,6 +4,7 @@
 import argparse
 import json
 import gzip
+import logging
 import multiprocessing
 import tarfile
 import io
@@ -1574,4 +1575,5 @@ def main(args: argparse.Namespace):
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
     main(get_args())
