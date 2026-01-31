@@ -975,8 +975,8 @@ def read_decompiled(location: Path, binary: str) -> Optional[list[DecompiledFunc
     except (gzip.BadGzipFile, EOFError):
         print(f"Bad gzip file: {file}")
         return None
-    except MissingDebugError:
-        print(f"Missing debug info in {file}")
+    except MissingDebugError as e:
+        logging.warning(f"Missing debug info in {file} - {e}")
         return None
     return examples
 
