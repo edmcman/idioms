@@ -45,6 +45,7 @@ def get_args():
     parser.add_argument("--shard-size", type=int, default=3000, help="The number of examples per dataset shard.")
     parser.add_argument("--valid-max-bins-per-repo", type=int, help="The maximum number of binaries per repository in the validation set.")
     parser.add_argument("--test-max-bins-per-repo", type=int, help="The maximum number of binaries per repository in the test set.")
+    parser.add_argument("--ghidra", action="store_true", help="Use Ghidra mode (disables function name correction)")
     return parser.parse_args()
 
 ##################################################
@@ -980,7 +981,7 @@ def read_decompiled(location: Path, binary: str) -> Optional[list[DecompiledFunc
         return None
     return examples
 
-def canonicalize_function_names(functions: list[DecompiledFunction]) -> dict[str, list[str]]:
+def canonicalize_function_names(functions: list[DecompiledFunction], ghidra: bool = False) -> dict[str, list[str]]:
     """Remove function names from decompiled code and replace them with generic placeholders 
     funcX where X is an integer. Occasionally, the hex-rays-reported name of a function does not match
     the name of the function in the decompilation. In these cases, we correct the DecompiledFunction's
@@ -1041,10 +1042,12 @@ def canonicalize_function_names(functions: list[DecompiledFunction]) -> dict[str
             # this will include the original function name.  But DIRTY-Ghidra
             # corrects this problem and will not.  So here we only copy the name
             # if it appears legitimate.
-            if edit[0].text.decode() != fn.name and not re.match(r"(FUN|sub)_[0-9a-f]+", edit[0].text.decode()):
+            if not ghidra and edit[0].text.decode() != fn.name and not re.match(r"(FUN|sub)_[0-9a-f]+", edit[0].text.decode()):
                 if not fn.name.startswith("_"):
                     logging.warning(f"Changing function name from {fn.name} to {edit[0].text.decode()}")
                 fn.name = edit[0].text.decode()
+                if edit[0].text.decode().startswith("FUN_") or edit[0].text.decode().startswith("param_"):
+                    logging.warning("Use --ghidra if you are processing DIRTY-Ghidra training data.")
             fn.canonical_name = edit[1].decode()
         
         state.append((fn, fn_node, edits))
@@ -1205,13 +1208,14 @@ def accumulate(d: dict[K, list[V]], key: K, value: V):
     else:
         d[key] = [value]
 
-def prepare_repository(repo: str, binaries: set[str], preprocessed_location: Path, decompiled_location: Path) -> list[MatchedBinary]:
+def prepare_repository(repo: str, binaries: set[str], preprocessed_location: Path, decompiled_location: Path, ghidra: bool = False) -> list[MatchedBinary]:
     """Prepare all examples in a repository for training. Combines decompiled information from IDA with preprocessed information.
 
     :param repo: the repository to process
     :param binaries: the hashes of all of the binaries in the compiled version of this program
     :param preprocessed_location: where to find the preprocessed files
     :param decompiled_location: where to find the decompiled files and typelib
+    :param ghidra: use Ghidra mode (disables function name correction)
     """
     bin2decomp: dict[str, list[DecompiledFunction]] = {} # Index by binary hash
     for binary in sorted(binaries):
@@ -1246,7 +1250,7 @@ def prepare_repository(repo: str, binaries: set[str], preprocessed_location: Pat
     for binhash, decomp in bin2decomp.items():
         # Some functions in decomp may not be able to get canonical decompiled code or names. Those fields will be 
         # set to None. Leave them here for now to help the decomp/original matching process. They'll be filtered out later.
-        call_graphs[binhash] = canonicalize_function_names(decomp)
+        call_graphs[binhash] = canonicalize_function_names(decomp, ghidra=ghidra)
 
     ### Process preprocessed source code.
     preprocessed_files = [Path(f).absolute() for f in scandir(preprocessed_location / repo) if f.is_file()]
@@ -1330,9 +1334,10 @@ def prepare_repository(repo: str, binaries: set[str], preprocessed_location: Pat
 
 def _multiprocessing_prepare_repository(repoinfo: tuple[str, set[str]], 
                                         preprocessed_dir: Path, 
-                                        decompiled_dir: Path
+                                        decompiled_dir: Path,
+                                        ghidra: bool = False
                                         ) -> list[MatchedBinary]:
-    return prepare_repository(*repoinfo, preprocessed_dir, decompiled_dir)
+    return prepare_repository(*repoinfo, preprocessed_dir, decompiled_dir, ghidra=ghidra)
 
 ##################################################
 # Repository-level information 
@@ -1512,7 +1517,8 @@ def main(args: argparse.Namespace):
                 func=functools.partial(
                     _multiprocessing_prepare_repository, 
                     preprocessed_dir=preprocessed_dir / "repos", 
-                    decompiled_dir=decompiled_dir / "bins"
+                    decompiled_dir=decompiled_dir / "bins",
+                    ghidra=args.ghidra
                 )
             )
 
