@@ -1234,20 +1234,32 @@ def write_output_to_files(results: list[tuple[MatchedFunction, str]], stem: Path
             json.dump(exebench_info, fp)
 
 
-    printable = [
-        (
-            fn.canonical_original_code + "\n\n" + "\n\n".join(udt.declaration("") for udt in fn.user_defined_types),
-            prediction
-        )
-        for fn, prediction in results
-    ]
+    printable: list[tuple[str, str, str]] = []
+    for fn, prediction in results:
+        # Store (original+UDTs, raw decompiler output, prediction) as a 3-tuple so callers
+        # can access each piece separately.
+        decompiler_output = fn.decompiled_code
+
+        original_and_udts = fn.canonical_original_code + "\n\n" + "\n\n".join(udt.declaration("") for udt in fn.user_defined_types)
+        printable.append((original_and_udts, decompiler_output, prediction))
 
     with open(stem.with_suffix(".c"), "w") as fp:
-        for original, prediction in printable:
+        for original, decompiled_raw, prediction in printable:
+            # Original (canonical) + UDTs
+            fp.write("// === Original (canonical) + UDTs ===\n")
             fp.write(original)
-            fp.write("\n// ----\n")
+            fp.write("\n\n")
+
+            # Raw decompiler output (uncommented) — placed between original and prediction
+            fp.write("// === Decompiler output (raw) ===\n")
+            fp.write(decompiled_raw)
+            fp.write("\n\n")
+
+            # Model prediction
+            fp.write("// === Model prediction ===\n")
             fp.write(prediction)
             fp.write("\n\n")
+
             fp.write("// " + "*" * 40)
             fp.write("\n\n")
 
